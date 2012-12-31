@@ -129,12 +129,82 @@ int latchpin = 4;
 
 // define vars for angles to display
 int bankAngleDegrees;
+int pitchAngleDegrees;
 
 
 // We'll also declare a global variable for the data we're
 // sending to the shift register:
 
 byte data = 0;
+
+
+// setup custom chars for lcd display
+            // make some custom characters:
+            byte fullBlock[8] = {
+              0b11111,
+              0b11111,
+              0b11111,
+              0b11111,
+              0b11111,
+              0b11111,
+              0b11111,
+              0b11111
+            };
+            
+            byte emptyBlock[8] = {
+              0b00000,
+              0b00000,
+              0b00000,
+              0b00000,
+              0b00000,
+              0b00000,
+              0b00000,
+              0b00000
+            };
+
+            byte leftHalfBlock[8] = {
+              0b00011,
+              0b00011,
+              0b00011,
+              0b00011,
+              0b00011,
+              0b00011,
+              0b00011,
+              0b00011
+            };
+            
+            byte rightHalfBlock[8] = {
+              0b11000,
+              0b11000,
+              0b11000,
+              0b11000,
+              0b11000,
+              0b11000,
+              0b11000,
+              0b11000
+            };            
+
+            byte pitchUp[8] = {
+              0b00100,
+              0b01110,
+              0b11111,
+              0b00100,
+              0b00100,
+              0b00100,
+              0b00100,
+              0b00100
+            };     
+
+            byte pitchDown[8] = {
+              0b00100,
+              0b00100,
+              0b00100,
+              0b00100,
+              0b11111,
+              0b01110,
+              0b01110,
+              0b00100,
+            };     
 
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
@@ -169,7 +239,10 @@ void setup() {
 
 
     lcd.setCursor(0,0); // set to top left
-    lcd.print("Bank:");
+    lcd.print("Bank");
+
+    lcd.setCursor(11,0); // set to top left
+    lcd.print("Pitch");
   
     // join I2C bus (I2Cdev library doesn't do this automatically)
     Wire.begin();
@@ -248,12 +321,8 @@ void loop() {
 
     // wait for MPU interrupt or extra packet(s) available
     while (!mpuInterrupt && fifoCount < packetSize) {
-        // other program behavior stuff here
-        // .
-        // if you are really paranoid you can frequently test in between other
-        // stuff to see if mpuInterrupt is true, and if so, "break;" from the
-        // while() loop to immediately process the MPU data
-        // .
+      
+// other code here    
     }
 
     // reset interrupt flag and get INT_STATUS byte
@@ -317,7 +386,9 @@ void loop() {
             Serial.print(ypr[1] * 180/M_PI);
             Serial.print("\t");
             Serial.println(ypr[2] * 180/M_PI);
-            bankAngleDegrees = abs(ypr[2] * 180/M_PI);
+            pitchAngleDegrees = (ypr[1] * 180/M_PI);
+            bankAngleDegrees = (ypr[2] * 180/M_PI);
+
         #endif
 
 //        #ifdef OUTPUT_READABLE_REALACCEL
@@ -349,20 +420,6 @@ void loop() {
 //            Serial.print("\t");
 //            Serial.println(aaWorld.z);
 //        #endif
-    
-//        #ifdef OUTPUT_TEAPOT
-//            // display quaternion values in InvenSense Teapot demo format:
-//            teapotPacket[2] = fifoBuffer[0];
-//            teapotPacket[3] = fifoBuffer[1];
-//            teapotPacket[4] = fifoBuffer[4];
-//            teapotPacket[5] = fifoBuffer[5];
-//            teapotPacket[6] = fifoBuffer[8];
-//            teapotPacket[7] = fifoBuffer[9];
-//            teapotPacket[8] = fifoBuffer[12];
-//            teapotPacket[9] = fifoBuffer[13];
-//            Serial.write(teapotPacket, 14);
-//            teapotPacket[11]++; // packetCount, loops at 0xFF on purposef
-//        #endif
 
         // blink LED to indicate activity
         blinkState = !blinkState;
@@ -371,19 +428,89 @@ void loop() {
         // light up LEDS
         lightArray(bankAngleDegrees);
 
-    // Print a message to the LCD.
-        lcd.setCursor(7,0);
+        // show bar graph of bank angle
+//        bankAngleGraph(bankAngleDegrees);
+        
+   // Print bank angle to the LCD
+        lcd.setCursor(2,1);
         lcd.print("  ");
-        if (bankAngleDegrees < 10) 
+        if (abs(bankAngleDegrees) < 10) 
           {
-            lcd.setCursor(8,0); 
+            lcd.setCursor(3,1); 
           }
           else         
           {
-            lcd.setCursor(7,0); 
+            lcd.setCursor(2,1); 
           }
-        lcd.print(bankAngleDegrees);
+        lcd.print(abs(bankAngleDegrees));
+
+   // Print pitch angle to the LCD
+        lcd.setCursor(13,1);
+        lcd.print("   ");
+        if (pitchAngleDegrees >=0 && pitchAngleDegrees < 10)
+          {
+            lcd.setCursor(15,1); 
+          }
+          else if (pitchAngleDegrees <= 0 && pitchAngleDegrees > -10 )
+          {
+             lcd.setCursor(14,1);
+          }
+          else if (pitchAngleDegrees <= -10)
+          {
+             lcd.setCursor(13,1);
+          }
+          else
+          {
+             lcd.setCursor(14,1);
+          }
+
+        lcd.print(pitchAngleDegrees);
+
+  // show left or right for bank direction
   
+        if (bankAngleDegrees > 2)
+        {
+          lcd.setCursor(5,1);
+          lcd.print(">");     
+          lcd.setCursor(0,1);
+          lcd.print(" ");     
+        }
+        else if (bankAngleDegrees < -2)
+        {
+          lcd.setCursor(0,1);
+          lcd.print("<");     
+          lcd.setCursor(5,1);
+          lcd.print(" ");     
+        }
+        else
+        {
+          lcd.setCursor(0,1);
+          lcd.print(" ");     
+          lcd.setCursor(5,1);
+          lcd.print(" ");     
+        }
+        
+
+  // show up or down arrow for pitch
+        lcd.createChar(5, pitchUp);        
+        lcd.createChar(6, pitchDown);        
+
+        if (pitchAngleDegrees > 0)
+          {
+             lcd.setCursor(10,1);
+             lcd.write(5);
+          }
+         else 
+         {
+             lcd.setCursor(10,1);
+             lcd.write(6);
+         }
+         
+
+          // show buffer for troubleshooting
+//        lcd.setCursor(0,1);
+//        lcd.print(fifoCount);
+
     }
 }
 
@@ -413,66 +540,260 @@ void shiftWrite(int desiredPin, boolean desiredState)
   }
 
 
-void lightArray(int bankAngle)
-  {
-    
-      //convert ypr into bank angle degrees
-      bankAngle = abs(ypr[2] * 180/M_PI) ;
-      
-      // light up yellow if more than 20 degrees of bank
-        if (abs(ypr[2] * 180/M_PI) < 20) {
-            digitalWrite(greenLED, HIGH);
-            shiftWrite(0, LOW);
-            shiftWrite(1, LOW);
-            shiftWrite(2, LOW);
-            shiftWrite(3, LOW);
-            shiftWrite(4, LOW);
-            shiftWrite(5, LOW);          
-            shiftWrite(6, LOW);
-            shiftWrite(7, LOW);            
+    void lightArray(int bankAngle)
+      {
+
+            lcd.createChar(1, fullBlock);
+            lcd.createChar(2, emptyBlock);
+            lcd.createChar(3, leftHalfBlock);
+            lcd.createChar(4, rightHalfBlock);        
+            
+          //convert ypr into bank angle degrees
+          bankAngle = abs(ypr[2] * 180/M_PI) ;
+          
+          // light up yellow if more than 20 degrees of bank
+            if (bankAngle <10) {
+                digitalWrite(greenLED, HIGH);
+                shiftWrite(0, LOW);
+                shiftWrite(1, LOW);
+                shiftWrite(2, LOW);
+                shiftWrite(3, LOW);
+                shiftWrite(4, LOW);
+                shiftWrite(5, LOW);          
+                shiftWrite(6, LOW);
+                shiftWrite(7, LOW);    
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                // center
+//                lcd.write(3);
+//                lcd.write(4);
+//                // right side
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);            
+            }
+              else if (bankAngle >= 40) {
+              digitalWrite(greenLED, LOW);
+                shiftWrite(0, HIGH);
+                shiftWrite(1, HIGH);
+                shiftWrite(2, HIGH);
+                shiftWrite(3, HIGH);
+                shiftWrite(4, HIGH);
+                shiftWrite(5, HIGH);          
+                shiftWrite(6, HIGH);
+                shiftWrite(7, HIGH);   
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(1);
+//                // center
+//                lcd.write(1);
+//                lcd.write(1);
+//                // right side
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);                    
+              }
+              else if (bankAngle >= 30) {
+              digitalWrite(greenLED, LOW);
+                shiftWrite(0, LOW);
+                shiftWrite(1, HIGH);
+                shiftWrite(2, HIGH);
+                shiftWrite(3, HIGH);
+                shiftWrite(4, HIGH);
+                shiftWrite(5, HIGH);          
+                shiftWrite(6, HIGH);
+                shiftWrite(7, LOW);     
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(1);
+//                // center
+//                lcd.write(1);
+//                lcd.write(1);
+//                // right side
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);                    
+              }
+              else if (bankAngle >= 20) {
+              digitalWrite(greenLED, LOW);
+                shiftWrite(0, LOW);
+                shiftWrite(1, LOW);
+                shiftWrite(2, HIGH);
+                shiftWrite(3, HIGH);
+                shiftWrite(4, HIGH);
+                shiftWrite(5, HIGH);          
+                shiftWrite(6, LOW);
+                shiftWrite(7, LOW);     
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(1);
+//                lcd.write(1);
+//                // center
+//                lcd.write(1);
+//                lcd.write(1);
+//                // right side
+//                lcd.write(1);
+//                lcd.write(1);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);                    
+              }
+              else if (bankAngle >= 15) {
+                digitalWrite(greenLED, HIGH);
+                shiftWrite(0, LOW);
+                shiftWrite(1, LOW);
+                shiftWrite(2, LOW);
+                shiftWrite(3, HIGH);
+                shiftWrite(4, HIGH);
+                shiftWrite(5, LOW);          
+                shiftWrite(6, LOW);
+                shiftWrite(7, LOW);  
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(1);
+//                // center
+//                lcd.write(1);
+//                lcd.write(1);
+//                // right side
+//                lcd.write(1);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);                
+              }
+              else if (bankAngle >= 10) {
+                digitalWrite(greenLED, HIGH);
+                shiftWrite(0, LOW);
+                shiftWrite(1, LOW);
+                shiftWrite(2, LOW);
+                shiftWrite(3, LOW);
+                shiftWrite(4, LOW);
+                shiftWrite(5, LOW);          
+                shiftWrite(6, LOW);
+                shiftWrite(7, LOW);            
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                // center
+//                lcd.write(1);
+//                lcd.write(1);
+//                // right side
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+              }      
+            
           }
-          else if (abs(ypr[2] * 180/M_PI) > 50) {
-          digitalWrite(greenLED, LOW);
-            shiftWrite(0, HIGH);
-            shiftWrite(1, HIGH);
-            shiftWrite(2, HIGH);
-            shiftWrite(3, HIGH);
-            shiftWrite(4, HIGH);
-            shiftWrite(5, HIGH);          
-            shiftWrite(6, HIGH);
-            shiftWrite(7, HIGH);                      
-          }
-          else if (abs(ypr[2] * 180/M_PI) > 40) {
-          digitalWrite(greenLED, LOW);
-            shiftWrite(0, LOW);
-            shiftWrite(1, HIGH);
-            shiftWrite(2, HIGH);
-            shiftWrite(3, HIGH);
-            shiftWrite(4, HIGH);
-            shiftWrite(5, HIGH);          
-            shiftWrite(6, HIGH);
-            shiftWrite(7, LOW);                      
-          }
-          else if (abs(ypr[2] * 180/M_PI) > 30) {
-          digitalWrite(greenLED, LOW);
-            shiftWrite(0, LOW);
-            shiftWrite(1, LOW);
-            shiftWrite(2, HIGH);
-            shiftWrite(3, HIGH);
-            shiftWrite(4, HIGH);
-            shiftWrite(5, HIGH);          
-            shiftWrite(6, LOW);
-            shiftWrite(7, LOW);                      
-          }
-          else if ( abs(ypr[2] * 180/M_PI) > 20) {
-            digitalWrite(greenLED, HIGH);
-            shiftWrite(0, LOW);
-            shiftWrite(1, LOW);
-            shiftWrite(2, LOW);
-            shiftWrite(3, HIGH);
-            shiftWrite(4, HIGH);
-            shiftWrite(5, LOW);          
-            shiftWrite(6, LOW);
-            shiftWrite(7, LOW);                        
-          }
-  }
+          
+         
+//      void bankAngleGraph(int bankAngle)
+//        {
+//            
+////            lcd.createChar(1, fullBlock);
+////            lcd.createChar(2, emptyBlock);
+//       
+//            if (bankAngle <= 5)
+//              { 
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                // center
+//                lcd.write(1);
+//                lcd.write(1);
+//                // right side
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//              }
+//              else if (bankAngle > 5)
+//              {
+//                lcd.setCursor(0,1);
+//                // left
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(1);
+//                // center
+//                lcd.write(1);
+//                lcd.write(1);
+//                // right side
+//                lcd.write(1);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//                lcd.write(2);
+//              }
+//        }
+          
+
