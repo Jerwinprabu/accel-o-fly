@@ -41,7 +41,9 @@
 int delayTime = 100;
 
 // initialize the library with the numbers of the interface pins
-LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
+// reversed with new breadboard 
+// LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 
 // make some custom characters:
 byte fullBlock[8] = {
@@ -137,13 +139,11 @@ void setup() {
   lcd.createChar(6, emptyBlock);
   lcd.createChar(7, emptyBlock);
   lcd.createChar(8, emptyBlock);
-  lcd.createChar(9, fullBlock);
-  lcd.createChar(10, fullBlock);
+//  lcd.createChar(9, fullBlock);
+//  lcd.createChar(10,fullBlock);
   
   // set up the lcd's number of columns and rows: 
   lcd.begin(16, 2);
-  // Print a message to the lcd.
-//  lcd.print("I "); 
   // set the cursor to top left
   lcd.setCursor(0, 0);
   lcd.write(1);
@@ -158,8 +158,6 @@ void setup() {
   lcd.write(8);
   lcd.write(9);
   lcd.write(10);  
-
-
 
 }
 

@@ -16,6 +16,9 @@ TODO: make this MPU6050 a library or such and move all the setup stuff out to th
 ===============================================
 */
 
+// include servo lib
+// #include <Servo.h>
+
 // Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
 // is used in I2Cdev.h
 #include "Wire.h"
@@ -34,11 +37,21 @@ TODO: make this MPU6050 a library or such and move all the setup stuff out to th
 MPU6050 mpu;
 
 // include the LCD library
-#include <LiquidCrystal.h>
+//#include <LiquidCrystal.h>
 
 // initialize the library with the numbers of the interface pins
-LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
+// reversed with new breadboard 
+//LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 
+// setup the led matrix
+#include "HT1632.h"
+
+#define DATA 4
+#define WR   5
+#define CS   6
+// #define CS2  0
+
+HT1632LEDMatrix matrix = HT1632LEDMatrix(DATA, WR, CS);
 
 /* =========================================================================
    NOTE: In addition to connection 3.3v, GND, SDA, and SCL, this sketch
@@ -59,13 +72,13 @@ LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
 // uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
 // quaternion components in a [w, x, y, z] format (not best for parsing
 // on a remote host such as Processing or something though)
-#define OUTPUT_READABLE_QUATERNION
+// #define OUTPUT_READABLE_QUATERNION
 
 // uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
 // (in degrees) calculated from the quaternions coming from the FIFO.
 // Note that Euler angles suffer from gimbal lock (for more info, see
 // http://en.wikipedia.org/wiki/Gimbal_lock)
-#define OUTPUT_READABLE_EULER
+// #define OUTPUT_READABLE_EULER
 
 // uncomment "OUTPUT_READABLE_YAWPITCHROLL" if you want to see the yaw/
 // pitch/roll angles (in degrees) calculated from the quaternions coming
@@ -79,21 +92,18 @@ LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
 // not compensated for orientation, so +X is always +X according to the
 // sensor, just without the effects of gravity. If you want acceleration
 // compensated for orientation, us OUTPUT_READABLE_WORLDACCEL instead.
-#define OUTPUT_READABLE_REALACCEL
+// #define OUTPUT_READABLE_REALACCEL
 
 // uncomment "OUTPUT_READABLE_WORLDACCEL" if you want to see acceleration
 // components with gravity removed and adjusted for the world frame of
 // reference (yaw is relative to initial orientation, since no magnetometer
 // is present in this case). Could be quite handy in some cases.
-#define OUTPUT_READABLE_WORLDACCEL
+// #define OUTPUT_READABLE_WORLDACCEL
 
-// uncomment "OUTPUT_TEAPOT" if you want output that matches the
-// format used for the InvenSense teapot demo
-//#define OUTPUT_TEAPOT
+ #define OUTPUT_TO_SERIAL
 
-
-#define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
-bool blinkState = false;
+// #define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
+// bool blinkState = false;
 
 // MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
@@ -112,24 +122,18 @@ VectorFloat gravity;    // [x, y, z]            gravity vector
 float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
-// packet structure for InvenSense teapot demo
-uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
-
-// define LED for green, as it is not hooked to the register
-int greenLED = 5;
-
-// define pins, from circuit_14 SIK sample
-// Pin definitions:
-// The 74HC595 uses a type of serial connection called SPI
-// (Serial Peripheral Interface) that requires three pins:
-
-int datapin = 6; 
-int clockpin = 3;
-int latchpin = 4;
+// interupt for button to level
+int intPin = 3;
 
 // define vars for angles to display
 int bankAngleDegrees;
 int pitchAngleDegrees;
+int bankAngleDegreesShort;
+int pitchAngleDegreesShort;
+int bankAngleLevel;
+int pitchAngleLevel;
+
+int matrixBrightness = 1;
 
 
 // We'll also declare a global variable for the data we're
@@ -139,51 +143,6 @@ byte data = 0;
 
 
 // setup custom chars for lcd display
-            // make some custom characters:
-            byte fullBlock[8] = {
-              0b11111,
-              0b11111,
-              0b11111,
-              0b11111,
-              0b11111,
-              0b11111,
-              0b11111,
-              0b11111
-            };
-            
-            byte emptyBlock[8] = {
-              0b00000,
-              0b00000,
-              0b00000,
-              0b00000,
-              0b00000,
-              0b00000,
-              0b00000,
-              0b00000
-            };
-
-            byte leftHalfBlock[8] = {
-              0b00011,
-              0b00011,
-              0b00011,
-              0b00011,
-              0b00011,
-              0b00011,
-              0b00011,
-              0b00011
-            };
-            
-            byte rightHalfBlock[8] = {
-              0b11000,
-              0b11000,
-              0b11000,
-              0b11000,
-              0b11000,
-              0b11000,
-              0b11000,
-              0b11000
-            };            
-
             byte pitchUp[8] = {
               0b00100,
               0b01110,
@@ -206,6 +165,10 @@ byte data = 0;
               0b00100,
             };     
 
+    // setup servo
+//    Servo myservo;
+//    int servoPos = 0; 
+    
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
 // ================================================================
@@ -215,6 +178,9 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
+  // button interupt
+  volatile int buttonState = LOW;
+  volatile unsigned long last_interrupt_time = 0;
 
 
 // ================================================================
@@ -223,27 +189,34 @@ void dmpDataReady() {
 
 void setup() {
   
-    // Set the three SPI pins to be outputs:
-
-    pinMode(datapin, OUTPUT);
-    pinMode(clockpin, OUTPUT);  
-    pinMode(latchpin, OUTPUT);
-
-    // configure LEDs for output
-    pinMode(LED_PIN, OUTPUT);
-    pinMode(greenLED, OUTPUT);
-
-    // set up the LCD's number of columns and rows: 
-    lcd.begin(16, 2);
-    lcd.clear();
+    // define button as interrupt
+    pinMode(intPin, INPUT_PULLUP);
+    attachInterrupt(1,setLevel,CHANGE);
 
 
-    lcd.setCursor(0,0); // set to top left
-    lcd.print("Bank");
-
-    lcd.setCursor(11,0); // set to top left
-    lcd.print("Pitch");
+//    // set up the LCD's number of columns and rows: 
+//    lcd.begin(16, 2);
+//    lcd.clear();
+//
+//    lcd.setCursor(0,0); // set to top left
+//    lcd.print("Bank");
+//
+//    lcd.setCursor(11,0); // set to top left
+//    lcd.print("Pitch");
   
+  
+  // init LED matrix
+    matrix.begin(HT1632_COMMON_16NMOS);  
+    matrix.setBrightness(matrixBrightness);
+
+      // box for pitch 
+       matrix.drawLine(10,0,10,15,1);      
+       matrix.drawLine(13,0,13,15,1);      
+
+  
+    // attach servo
+//    myservo.attach(5);
+
     // join I2C bus (I2Cdev library doesn't do this automatically)
     Wire.begin();
 
@@ -315,7 +288,7 @@ void setup() {
 
 void loop() {
 
- 
+  
     // if programming failed, don't try to do anything
     if (!dmpReady) return;
 
@@ -350,6 +323,17 @@ void loop() {
         // (this lets us immediately read more without waiting for an interrupt)
         fifoCount -= packetSize;
 
+  //  always get fifo data and save to vars
+            mpu.dmpGetQuaternion(&q, fifoBuffer);
+            mpu.dmpGetGravity(&gravity, &q);
+//            mpu.dmpGetEuler(euler, &q);
+            mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+
+            pitchAngleDegreesShort = (ypr[1]*-1 * 180/M_PI)*-100;
+            bankAngleDegreesShort = (ypr[2]* -1 * 180/M_PI)*-100;
+            pitchAngleDegrees = (pitchAngleDegreesShort - pitchAngleLevel)/100;
+            bankAngleDegrees = (bankAngleDegreesShort - bankAngleLevel)/100;
+
 //        #ifdef OUTPUT_READABLE_QUATERNION
 //            // display quaternion values in easy matrix form: w x y z
 //            mpu.dmpGetQuaternion(&q, fifoBuffer);
@@ -363,32 +347,54 @@ void loop() {
 //            Serial.println(q.z);
 //        #endif
 
-//        #ifdef OUTPUT_READABLE_EULER
-//            // display Euler angles in degrees
-//            mpu.dmpGetQuaternion(&q, fifoBuffer);
-//            mpu.dmpGetEuler(euler, &q);
-//            Serial.print("euler\t");
-//            Serial.print(euler[0] * 180/M_PI);
-//            Serial.print("\t");
-//            Serial.print(euler[1] * 180/M_PI);
-//            Serial.print("\t");
-//            Serial.println(euler[2] * 180/M_PI);
-//        #endif
+        #ifdef OUTPUT_READABLE_EULER
+            // display Euler angles in degrees
+            mpu.dmpGetQuaternion(&q, fifoBuffer);
+            mpu.dmpGetEuler(euler, &q);
+            Serial.print("euler\t");
+            Serial.print(euler[0] * 180/M_PI);
+            Serial.print("\t");
+            Serial.print(euler[1] * 180/M_PI);
+            Serial.print("\t");
+            Serial.println(euler[2] * 180/M_PI);
+        #endif
 
         #ifdef OUTPUT_READABLE_YAWPITCHROLL
             // display Euler angles in degrees
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             mpu.dmpGetGravity(&gravity, &q);
             mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            Serial.print("ypr\t");
+//            Serial.print("raw ypr:\t");
+//            Serial.print(ypr[0] * 180/M_PI);
+//            Serial.print("\t");
+//            Serial.print(ypr[1] * 180/M_PI);
+//            Serial.print("\t");
+//            Serial.print(ypr[2] * 180/M_PI);
+//            Serial.print("\t leveled: ");
+//            Serial.print(pitchAngleLevel);
+//            Serial.print("\t");            
+//            Serial.print(bankAngleLevel);
+//            servoPos = bankAngleDegrees + 90;
+//            myservo.write(servoPos);
+//            Serial.print("\t");
+//            Serial.println(servoPos);
+              Serial.println();
+        #endif
+            
+        #ifdef OUTPUT_TO_SERIAL
+            // display Euler angles in degrees
+            Serial.print("raw ypr:\t");
             Serial.print(ypr[0] * 180/M_PI);
             Serial.print("\t");
             Serial.print(ypr[1] * 180/M_PI);
             Serial.print("\t");
-            Serial.println(ypr[2] * 180/M_PI);
-            pitchAngleDegrees = (ypr[1] * 180/M_PI);
-            bankAngleDegrees = (ypr[2] * 180/M_PI);
-
+            Serial.print(ypr[2] * 180/M_PI);
+            Serial.print("\t leveled: ");
+            Serial.print(pitchAngleLevel/100);
+            Serial.print("\t");            
+            Serial.print(bankAngleLevel/100);
+            Serial.print("\t");
+//            Serial.println(servoPos);
         #endif
 
 //        #ifdef OUTPUT_READABLE_REALACCEL
@@ -421,379 +427,161 @@ void loop() {
 //            Serial.println(aaWorld.z);
 //        #endif
 
-        // blink LED to indicate activity
-        blinkState = !blinkState;
-        digitalWrite(LED_PIN, blinkState);
-        
-        // light up LEDS
-        lightArray(bankAngleDegrees);
 
-        // show bar graph of bank angle
-//        bankAngleGraph(bankAngleDegrees);
-        
-   // Print bank angle to the LCD
-        lcd.setCursor(2,1);
-        lcd.print("  ");
-        if (abs(bankAngleDegrees) < 10) 
-          {
-            lcd.setCursor(3,1); 
-          }
-          else         
-          {
-            lcd.setCursor(2,1); 
-          }
-        lcd.print(abs(bankAngleDegrees));
-
-   // Print pitch angle to the LCD
-        lcd.setCursor(13,1);
-        lcd.print("   ");
-        if (pitchAngleDegrees >=0 && pitchAngleDegrees < 10)
-          {
-            lcd.setCursor(15,1); 
-          }
-          else if (pitchAngleDegrees <= 0 && pitchAngleDegrees > -10 )
-          {
-             lcd.setCursor(14,1);
-          }
-          else if (pitchAngleDegrees <= -10)
-          {
-             lcd.setCursor(13,1);
-          }
-          else
-          {
-             lcd.setCursor(14,1);
-          }
-
-        lcd.print(pitchAngleDegrees);
-
-  // show left or right for bank direction
+  // LED matrix
   
-        if (bankAngleDegrees > 2)
+      int linePositionLeft;
+      linePositionLeft = map(bankAngleDegrees,-30,30,0,15);
+      int linePositionRight;
+      linePositionRight = map(bankAngleDegrees,-30,30,15,0);
+      int linePositionPitch;
+      linePositionPitch = map(constrain(pitchAngleDegrees,-35,30),-35,30,0,15);
+   
+      // matrix.clearScreen();
+      // clear manually with a empty rect, as clearsScreen is causing flicker
+      matrix.fillRect(0,0,10,16,0);
+      matrix.fillRect(14,0,10,16,0);
+      
+      if ( (bankAngleDegrees > -4) && (bankAngleDegrees < 4) )
         {
-          lcd.setCursor(5,1);
-          lcd.print(">");     
-          lcd.setCursor(0,1);
-          lcd.print(" ");     
+          matrix.drawLine(0,8,23,8,1);
         }
-        else if (bankAngleDegrees < -2)
+      else
         {
-          lcd.setCursor(0,1);
-          lcd.print("<");     
-          lcd.setCursor(5,1);
-          lcd.print(" ");     
+          matrix.drawLine(0,linePositionLeft,23,linePositionRight,1);
         }
-        else
-        {
-          lcd.setCursor(0,1);
-          lcd.print(" ");     
-          lcd.setCursor(5,1);
-          lcd.print(" ");     
-        }
+
+      // clear out pitch box
+      matrix.fillRect(11,0,2,15,0);
+
+      matrix.fillRect(11,linePositionPitch,2,15,1);
+      matrix.writeScreen();
+      
+//        // blink LED to indicate activity
+//        blinkState = !blinkState;
+//      digitalWrite(LED_PIN, blinkState);
         
-
-  // show up or down arrow for pitch
-        lcd.createChar(5, pitchUp);        
-        lcd.createChar(6, pitchDown);        
-
-        if (pitchAngleDegrees > 0)
-          {
-             lcd.setCursor(10,1);
-             lcd.write(5);
-          }
-         else 
-         {
-             lcd.setCursor(10,1);
-             lcd.write(6);
-         }
-         
-
-          // show buffer for troubleshooting
-//        lcd.setCursor(0,1);
-//        lcd.print(fifoCount);
+// uncomment to use LCD again
+        
+//   // Print bank angle to the LCD
+//        lcd.setCursor(2,1);
+//        lcd.print("  ");
+//        if (abs(bankAngleDegrees) < 10) 
+//          {
+//            lcd.setCursor(3,1); 
+//          }
+//          else         
+//          {
+//            lcd.setCursor(2,1); 
+//          }
+//        lcd.print(abs(bankAngleDegrees));
+//
+//   // Print pitch angle to the LCD
+//        lcd.setCursor(13,1);
+//        lcd.print("   ");
+//        if (pitchAngleDegrees >=0 && pitchAngleDegrees < 10)
+//          {
+//            lcd.setCursor(15,1); 
+//          }
+//          else if (pitchAngleDegrees <= 0 && pitchAngleDegrees > -10 )
+//          {
+//             lcd.setCursor(14,1);
+//          }
+//          else if (pitchAngleDegrees <= -10)
+//          {
+//             lcd.setCursor(13,1);
+//          }
+//          else
+//          {
+//             lcd.setCursor(14,1);
+//          }
+//
+//        lcd.print(pitchAngleDegrees);
+//
+//  // show left or right for bank direction
+//  
+//        if (bankAngleDegrees > 2)
+//        {
+//          lcd.setCursor(5,1);
+//          lcd.print(">");     
+//          lcd.setCursor(0,1);
+//          lcd.print(" ");     
+//        }
+//        else if (bankAngleDegrees < -2)
+//        {
+//          lcd.setCursor(0,1);
+//          lcd.print("<");     
+//          lcd.setCursor(5,1);
+//          lcd.print(" ");     
+//        }
+//        else
+//        {
+//          lcd.setCursor(0,1);
+//          lcd.print(" ");     
+//          lcd.setCursor(5,1);
+//          lcd.print(" ");     
+//        }
+//        
+//
+//  // show up or down arrow for pitch
+//        lcd.createChar(5, pitchUp);        
+//        lcd.createChar(6, pitchDown);        
+//
+//        if (pitchAngleDegrees > 0)
+//          {
+//             lcd.setCursor(10,1);
+//             lcd.write(5);
+//          }
+//         else 
+//         {
+//             lcd.setCursor(10,1);
+//             lcd.write(6);
+//         }
+//         
+//
+//          // show buffer for troubleshooting
+////        lcd.setCursor(0,1);
+////        lcd.print(fifoCount);
+//
+//
 
     }
 }
 
-void shiftWrite(int desiredPin, boolean desiredState)
-  {
-   // First we'll alter the global variable "data", changing the
-   // desired bit to 1 or 0:
-  
-    bitWrite(data,desiredPin,desiredState);
-
-    // Now we'll actually send that data to the shift register.
-    // The shiftOut() function does all the hard work of
-    // manipulating the data and clock pins to move the data
-    // into the shift register:
-  
-    shiftOut(datapin, clockpin, MSBFIRST, data);
-  
-    // Once the data is in the shift register, we still need to
-    // make it appear at the outputs. We'll toggle the state of
-    // the latchPin, which will signal the shift register to "latch"
-    // the data to the outputs. (Latch activates on the high-to
-    // -low transition).
-  
-    digitalWrite(latchpin, HIGH);
-    digitalWrite(latchpin, LOW);
-
-  }
-
-
-    void lightArray(int bankAngle)
+    void setLevel()
       {
 
-            lcd.createChar(1, fullBlock);
-            lcd.createChar(2, emptyBlock);
-            lcd.createChar(3, leftHalfBlock);
-            lcd.createChar(4, rightHalfBlock);        
-            
-          //convert ypr into bank angle degrees
-          bankAngle = abs(ypr[2] * 180/M_PI) ;
-          
-          // light up yellow if more than 20 degrees of bank
-            if (bankAngle <10) {
-                digitalWrite(greenLED, HIGH);
-                shiftWrite(0, LOW);
-                shiftWrite(1, LOW);
-                shiftWrite(2, LOW);
-                shiftWrite(3, LOW);
-                shiftWrite(4, LOW);
-                shiftWrite(5, LOW);          
-                shiftWrite(6, LOW);
-                shiftWrite(7, LOW);    
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                // center
-//                lcd.write(3);
-//                lcd.write(4);
-//                // right side
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);            
-            }
-              else if (bankAngle >= 40) {
-              digitalWrite(greenLED, LOW);
-                shiftWrite(0, HIGH);
-                shiftWrite(1, HIGH);
-                shiftWrite(2, HIGH);
-                shiftWrite(3, HIGH);
-                shiftWrite(4, HIGH);
-                shiftWrite(5, HIGH);          
-                shiftWrite(6, HIGH);
-                shiftWrite(7, HIGH);   
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(1);
-//                // center
-//                lcd.write(1);
-//                lcd.write(1);
-//                // right side
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);                    
-              }
-              else if (bankAngle >= 30) {
-              digitalWrite(greenLED, LOW);
-                shiftWrite(0, LOW);
-                shiftWrite(1, HIGH);
-                shiftWrite(2, HIGH);
-                shiftWrite(3, HIGH);
-                shiftWrite(4, HIGH);
-                shiftWrite(5, HIGH);          
-                shiftWrite(6, HIGH);
-                shiftWrite(7, LOW);     
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(1);
-//                // center
-//                lcd.write(1);
-//                lcd.write(1);
-//                // right side
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);                    
-              }
-              else if (bankAngle >= 20) {
-              digitalWrite(greenLED, LOW);
-                shiftWrite(0, LOW);
-                shiftWrite(1, LOW);
-                shiftWrite(2, HIGH);
-                shiftWrite(3, HIGH);
-                shiftWrite(4, HIGH);
-                shiftWrite(5, HIGH);          
-                shiftWrite(6, LOW);
-                shiftWrite(7, LOW);     
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(1);
-//                lcd.write(1);
-//                // center
-//                lcd.write(1);
-//                lcd.write(1);
-//                // right side
-//                lcd.write(1);
-//                lcd.write(1);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);                    
-              }
-              else if (bankAngle >= 15) {
-                digitalWrite(greenLED, HIGH);
-                shiftWrite(0, LOW);
-                shiftWrite(1, LOW);
-                shiftWrite(2, LOW);
-                shiftWrite(3, HIGH);
-                shiftWrite(4, HIGH);
-                shiftWrite(5, LOW);          
-                shiftWrite(6, LOW);
-                shiftWrite(7, LOW);  
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(1);
-//                // center
-//                lcd.write(1);
-//                lcd.write(1);
-//                // right side
-//                lcd.write(1);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);                
-              }
-              else if (bankAngle >= 10) {
-                digitalWrite(greenLED, HIGH);
-                shiftWrite(0, LOW);
-                shiftWrite(1, LOW);
-                shiftWrite(2, LOW);
-                shiftWrite(3, LOW);
-                shiftWrite(4, LOW);
-                shiftWrite(5, LOW);          
-                shiftWrite(6, LOW);
-                shiftWrite(7, LOW);            
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                // center
-//                lcd.write(1);
-//                lcd.write(1);
-//                // right side
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-              }      
-            
-          }
-          
+        bankAngleLevel = bankAngleDegreesShort;
+        pitchAngleLevel = pitchAngleDegreesShort;  
+        matrix.clearScreen();
+      // box for pitch 
+       matrix.drawLine(10,0,10,15,1);      
+       matrix.drawLine(13,0,13,15,1);      
+        Serial.println("Leveled!\t");              
+
+        
+//        // If interrupts come faster than x00ms, assume it's a bounce and ignore
+//          if (millis() - last_interrupt_time > 500)
+//          {
+//                if (matrixBrightness == 1)
+//                {
+//                  matrixBrightness = 15;
+//                  matrix.setBrightness(matrixBrightness);
+//                }
+//                else
+//                {
+//                  matrixBrightness = 1;
+//                  matrix.setBrightness(matrixBrightness);
+//                }
+//                Serial.print(millis());
+//                Serial.print("\t");
+//                Serial.println(matrixBrightness);
+//          }
+//          
+//          last_interrupt_time = millis();
+      }
          
-//      void bankAngleGraph(int bankAngle)
-//        {
-//            
-////            lcd.createChar(1, fullBlock);
-////            lcd.createChar(2, emptyBlock);
-//       
-//            if (bankAngle <= 5)
-//              { 
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                // center
-//                lcd.write(1);
-//                lcd.write(1);
-//                // right side
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//              }
-//              else if (bankAngle > 5)
-//              {
-//                lcd.setCursor(0,1);
-//                // left
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(1);
-//                // center
-//                lcd.write(1);
-//                lcd.write(1);
-//                // right side
-//                lcd.write(1);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//                lcd.write(2);
-//              }
-//        }
+         
           
+
 
